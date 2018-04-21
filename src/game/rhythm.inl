@@ -191,6 +191,10 @@ void draw_note(Note* note)
     push_rectangle({ x,                 y }, { 0.5f,  1 }, left,   color);
     push_rectangle({ x + 0.5f,          y }, { width, 1 }, middle, color);
     push_rectangle({ x + 0.5f + width,  y }, { 0.5f,  1 }, right,  color);
+
+    static char percentage[50];
+    sprintf(percentage, "%d%%", (int)(note->score * 100 + 0.5));
+    render_string(percentage, x, y + 0.35, 0.3, 0.3);
 }
 
 void rhythm_render()

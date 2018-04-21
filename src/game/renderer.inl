@@ -96,7 +96,7 @@ struct Vertex
 };
 
 static std::vector<Vertex> render_vertices;
-static std::vector<uint16> render_indices;
+static std::vector<uint32> render_indices;
 
 void push_rectangle(float x, float y, float width, float height,
                     float u1, float v1, float u2, float v2,
@@ -107,7 +107,7 @@ void push_rectangle(float x, float y, float width, float height,
     float y1 = y;
     float y2 = y + height;
 
-    uint16 base_index = render_vertices.size();
+    uint32 base_index = render_vertices.size();
 
     render_vertices.push_back({ { x1, y1 }, { u1, v1 }, color });
     render_vertices.push_back({ { x2, y1 }, { u2, v1 }, color });
@@ -233,7 +233,7 @@ void rendering_flush(Renderer* renderer)
     glBufferData(GL_ARRAY_BUFFER, render_vertices.size() * sizeof(Vertex), &render_vertices[0], GL_STATIC_DRAW);
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, renderer->ibo);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, render_indices.size() * sizeof(uint16), &render_indices[0], GL_STATIC_DRAW);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, render_indices.size() * sizeof(uint32), &render_indices[0], GL_STATIC_DRAW);
 
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, renderer->atlas_texture);
@@ -249,7 +249,7 @@ void rendering_flush(Renderer* renderer)
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     glBindVertexArray(renderer->vao);
-    glDrawElements(GL_TRIANGLES, render_indices.size(), GL_UNSIGNED_SHORT, 0);
+    glDrawElements(GL_TRIANGLES, render_indices.size(), GL_UNSIGNED_INT, 0);
 
     render_vertices.clear();
     render_indices.clear();

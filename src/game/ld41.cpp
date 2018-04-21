@@ -79,6 +79,20 @@ struct Note
     bool pressed;
 };
 
+enum Brain
+{
+    BRAIN_PLAYER,
+    BRAIN_TREASURE,
+};
+
+struct Entity
+{
+    Brain brain;
+    Vector2 position;
+    Vector2 size;
+    Texture texture;
+};
+
 struct Game
 {
     bool initialized;
@@ -92,8 +106,7 @@ struct Game
         Texture marker_bed;
         Texture white;
         Texture multiply;
-        Texture wall;
-        Texture floor;
+        Texture font;
     } art;
 
     struct
@@ -111,6 +124,8 @@ struct Game
         int width;
         int height;
         Tile* tiles;
+
+        std::vector<Entity> entities;
     } level;
 
     char hotload_padding[512];
@@ -148,6 +163,204 @@ void load_level_from_image(const char* path)
     }
 
     stbi_image_free(pixels);
+}
+
+int random_int(int max)
+{
+    return rand() % max;
+}
+
+float random_float()
+{
+    return (float) rand() / (float) RAND_MAX;
+}
+
+static int generator_count_neighbors(Tile* read, int width, int height, int x, int y)
+{
+    int count = 0;
+
+    for (int dy = -1; dy <= 1; dy++)
+    {
+        for (int dx = -1; dx <= 1; dx++)
+        {
+            int nx = x + dx;
+            int ny = y + dy;
+            if (nx < 0 || ny < 0 || nx >= width || ny >= height)
+            {
+                count++;
+            }
+            else
+            {
+                count += read[ny * width + nx].z;
+            }
+        }
+    }
+
+    return count;
+}
+
+void generate_level_cave(int width, int height)
+{
+    auto& level = the_game->level;
+    level.width = width;
+    level.height = height;
+    if (level.tiles)
+    {
+        delete[] level.tiles;
+    }
+
+    level.entities.clear();
+
+    Tile* read  = new Tile[width * height];
+    Tile* write = new Tile[width * height];
+
+    const float initial_chance = 0.4;
+    const int birth_limit = 4;
+    const int death_limit = 3;
+    const int iteration_count = 5;
+
+    const int treasure_limit = 4;
+    const float treasure_chance = 0.4;
+
+    // random seed
+
+    for (int y = 0; y < height; y++)
+    {
+        for (int x = 0; x < width; x++)
+        {
+            float roll = random_float();
+            write[y * width + x].z = (int)(roll < initial_chance);
+        }
+    }
+
+    // cellular automata
+
+    for (int step = 0; step < iteration_count; step++)
+    {
+        std::swap(read, write);
+
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                int count = generator_count_neighbors(read, width, height, x, y);
+
+                if (read[y * width + x].z)
+                {
+                    write[y * width + x].z = (int)(count > death_limit);
+                }
+                else
+                {
+                    write[y * width + x].z = (int)(count > birth_limit);
+                }
+            }
+        }
+    }
+
+    // treasure
+
+    for (int y = 0; y < height; y++)
+    {
+        for (int x = 0; x < width; x++)
+        {
+            if (!write[y * width + x].z)
+            {
+                int count = generator_count_neighbors(write, width, height, x, y);
+                if (count >= treasure_limit)
+                {
+                    float roll = random_float();
+                    if (roll > treasure_chance)
+                    {
+                        continue;
+                    }
+
+                    Entity treasure;
+                    treasure.brain = BRAIN_TREASURE;
+                    treasure.position = vector2(x + 0.5, y + 0.5);
+                    treasure.size = vector2(1, 1);
+                    treasure.texture = the_game->art.marker;
+                    level.entities.push_back(treasure);
+                }
+            }
+        }
+    }
+
+    // find columns
+
+    for (int y = 0; y < height - 3; y++)
+    {
+        for (int x = 0; x < width - 3; x++)
+        {
+            if (write[(y + 0) * width + (x + 1)].z != 0) continue;
+            if (write[(y + 0) * width + (x + 2)].z != 0) continue;
+            if (write[(y + 1) * width + (x + 0)].z != 0) continue;
+            if (write[(y + 1) * width + (x + 1)].z != 1) continue;
+            if (write[(y + 1) * width + (x + 2)].z != 1) continue;
+            if (write[(y + 1) * width + (x + 3)].z != 0) continue;
+            if (write[(y + 2) * width + (x + 0)].z != 0) continue;
+            if (write[(y + 2) * width + (x + 1)].z != 1) continue;
+            if (write[(y + 2) * width + (x + 2)].z != 1) continue;
+            if (write[(y + 2) * width + (x + 3)].z != 0) continue;
+            if (write[(y + 3) * width + (x + 1)].z != 0) continue;
+            if (write[(y + 3) * width + (x + 2)].z != 0) continue;
+
+            write[(y + 1) * width + (x + 1)].z = 2;
+            write[(y + 1) * width + (x + 2)].z = 2;
+            write[(y + 2) * width + (x + 1)].z = 2;
+            write[(y + 2) * width + (x + 2)].z = 2;
+        }
+    }
+
+    // place the player
+
+    while (true)
+    {
+        int x = random_int(width - 1);
+        int y = random_int(height - 1);
+
+        if (read[(y + 0) * width + (x + 0)].z) continue;
+        if (read[(y + 0) * width + (x + 1)].z) continue;
+        if (read[(y + 1) * width + (x + 1)].z) continue;
+        if (read[(y + 1) * width + (x + 0)].z) continue;
+
+        Entity player;
+        player.brain = BRAIN_PLAYER;
+        player.size = vector2(1.7, 1.7);
+        player.position = vector2(x, y) + 0.5 * player.size;
+        player.texture = the_game->art.white;
+        level.entities.push_back(player);
+        break;
+    }
+
+    level.tiles = write;
+    delete[] read;
+}
+
+void update_level()
+{
+    auto& level = the_game->level;
+
+    for (Entity& entity : level.entities)
+    {
+        switch (entity.brain)
+        {
+
+        case BRAIN_PLAYER:
+        {
+            auto& keyboard = the_game->platform->keyboard;
+
+            Vector2 move = {};
+            if (keyboard.state['D'].down) move.x += 1;
+            if (keyboard.state['A'].down) move.x -= 1;
+            if (keyboard.state['W'].down) move.y += 1;
+            if (keyboard.state['S'].down) move.y -= 1;
+
+            float move_distance = 20 * the_game->platform->time.delta_seconds;
+            entity.position += noz(move) * move_distance;
+        } break;
+
+        }
+    }
 }
 
 Vector4 get_tile_color(int x, int y)
@@ -253,6 +466,47 @@ void render_level()
             render_tile(tile_x, tile_y);
         }
     }
+
+    for (Entity& entity : level.entities)
+    {
+        push_centered_rectangle(entity.position, entity.size, entity.texture);
+    }
+}
+
+void render_string(const char* text, float x, float y, float sx, float sy)
+{
+    const char FONT_CHARS[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ.,!?abcdefghijklmnopqrstuvwxyz    0123456789%";
+
+    Texture font = the_game->art.font;
+
+    float cx = x;
+    while (*text)
+    {
+        int index;
+        for (index = 0; index < sizeof(FONT_CHARS); index++)
+            if (FONT_CHARS[index] == *text)
+                break;
+        if (index == sizeof(FONT_CHARS))
+            index = 29;
+        text++;
+
+        int fx = index % 30;
+        int fy = 2 - index / 30;
+
+        float u1 = (fx * 5 + 0) / 150.0f + 1e-3;
+        float u2 = (fx * 5 + 5) / 150.0f - 1e-3;
+        float v1 = (fy * 7 + 0) /  21.0f + 1e-3;
+        float v2 = (fy * 7 + 7) /  21.0f - 1e-3;
+
+        Texture character;
+        character.uv1.x = lerp(font.uv1.x, font.uv2.x, u1);
+        character.uv2.x = lerp(font.uv1.x, font.uv2.x, u2);
+        character.uv1.y = lerp(font.uv1.y, font.uv2.y, v1);
+        character.uv2.y = lerp(font.uv1.y, font.uv2.y, v2);
+
+        push_rectangle({ cx, y }, { sx, sy }, character);
+        cx += sx * 1.1;
+    }
 }
 
 #include "rhythm.inl"
@@ -298,8 +552,7 @@ void lk_client_frame(LK_Platform* platform)
         game->art.marker_bed = add_texture(atlas, "data/textures/marker_bed.png");
         game->art.white = add_texture(atlas, "data/textures/white.png");
         game->art.multiply = add_texture(atlas, "data/textures/multiply.png");
-        game->art.wall = add_texture(atlas, "data/textures/wall.png");
-        game->art.floor = add_texture(atlas, "data/textures/floor.png");
+        game->art.font = add_texture(atlas, "data/textures/font.png");
 
         init_renderer(&game->renderer);
         game->initialized = true;
@@ -317,16 +570,24 @@ void lk_client_frame(LK_Platform* platform)
     glViewport(0, 0, platform->window.width, platform->window.height);
 
     float aspect = (float) platform->window.width / (float) platform->window.height;
-    float camera_x = 16 + sin(platform->time.seconds * 0.3) * 6;
-    float camera_y = 16 + cos(platform->time.seconds * 0.3) * 6;
-    game->renderer.camera_height = 12;
+    float camera_x = 32; // 16 + sin(platform->time.seconds * 0.3) * 6;
+    float camera_y = 32; // 16 + cos(platform->time.seconds * 0.3) * 6;
+    game->renderer.camera_height = 64;
     game->renderer.camera_width = game->renderer.camera_height * aspect;
     game->renderer.camera_transform = orthographic(
         camera_x - game->renderer.camera_width  * 0.5, camera_x + game->renderer.camera_width  * 0.5,
         camera_y - game->renderer.camera_height * 0.5, camera_y + game->renderer.camera_height * 0.5,
         -1, 1);
 
+    if (platform->keyboard.state[LK_KEY_SPACE].pressed)
+    {
+        generate_level_cave(64, 64);
+    }
+
+    update_level();
     render_level();
+    // render_string("This font is horrible", camera_x - 4, camera_y, 0.5, 0.5);
+    // render_string("THIS FONT IS TOLERABLE", camera_x - 4, camera_y + 1, 0.5, 0.5);
     rendering_flush(&game->renderer);
 
 
@@ -340,7 +601,7 @@ void lk_client_frame(LK_Platform* platform)
     }
 
     rhythm_controls();
-    rhythm_render();
+    // rhythm_render();
 }
 
 LK_CLIENT_EXPORT
