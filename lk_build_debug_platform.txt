@@ -1,0 +1,6 @@
+include         src/platform
+exclude         src/libraries/GL
+obj_output      build/debug/platform
+cl_options      -Z7 -Oi -MP -Gm- -fp:fast -fp:except- -we4239 -GR- -EHa- -GS- -Gs10000000 -D_CRT_SECURE_NO_WARNINGS -DGLEW_STATIC -DLK_NOCRT_CONSOLE_SUBSYSTEM
+link_options    -nologo -incremental:no -debug:fastlink -opt:ref -subsystem:console -nodefaultlib -stack:0x100000,0x100000 -out:run_tree/ld41.exe -pdb:run_tree/ld41.pdb
+libraries       kernel32.lib user32.lib gdi32.lib opengl32.lib glu32.lib

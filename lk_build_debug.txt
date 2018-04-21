@@ -1,0 +1,7 @@
+include         src/game
+exclude         src/platform
+exclude         src/libraries/GL
+obj_output      build/debug/game
+cl_options      -Z7 -Oi -MT -EHsc -GR- -MP -Gm- -fp:fast -fp:except- -we4239 -D_CRT_SECURE_NO_WARNINGS -DGLEW_STATIC
+link_options    -nologo -incremental:no -debug:fastlink -opt:ref -ignore:4099 -ignore:4217 -dll -out:run_tree/ld41_game.dll -pdb:run_tree/ld41_game_%random%_%random%_%random%_%random%.pdb
+libraries       kernel32.lib user32.lib gdi32.lib opengl32.lib glu32.lib lib/glew32s.lib
