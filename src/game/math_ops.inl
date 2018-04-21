@@ -4,11 +4,22 @@ int32 min_i32(int32 a, int32 b) { return a < b ? a : b; }
 float max_f32(float a, float b) { return a > b ? a : b; }
 float min_f32(float a, float b) { return a < b ? a : b; }
 
+int32 clamp_i32(int32 x, int32 l, int32 h) { return min_i32(max_i32(x, l), h); }
+float clamp_f32(float x, float l, float h) { return min_f32(max_f32(x, l), h); }
+
 
 Vector2 vector2(float x, float y                  ) { return { x, y       }; }
 Vector3 vector3(float x, float y, float z         ) { return { x, y, z    }; }
 Vector4 vector4(float x, float y, float z, float w) { return { x, y, z, w }; }
 Vector4 vector4(Vector3 v, float w) { return { v.x, v.y, v.z, w }; }
+
+Vector4 rgb(uint32 color)
+{
+    float r = ((color >> 16) & 0xFF) / 255.0f;
+    float g = ((color >>  8) & 0xFF) / 255.0f;
+    float b = ((color >>  0) & 0xFF) / 255.0f;
+    return vector4(r, g, b, 1);
+}
 
 Vector2 operator-(Vector2 v) { return vector2(-v.x, -v.y            ); }
 Vector3 operator-(Vector3 v) { return vector3(-v.x, -v.y, -v.z      ); }

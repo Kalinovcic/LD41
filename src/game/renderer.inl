@@ -38,41 +38,46 @@ Texture add_texture(Atlas* atlas, const char* path)
         return {};
     }
 
-    if (width > atlas->width)
+    int padding = 2;
+    if (width + padding > atlas->width)
     {
         goto doesnt_fit;
     }
 
-    if (atlas->cursor_x + width > atlas->width)
+    if (atlas->cursor_x + width + 2 * padding > atlas->width)
     {
         atlas->cursor_x = 0;
         atlas->cursor_y += atlas->line_height;
         atlas->line_height = 0;
     }
 
-    if (atlas->cursor_y + height > atlas->height)
+    if (atlas->cursor_y + height + 2 * padding > atlas->height)
     {
         goto doesnt_fit;
     }
 
-    atlas->line_height = max_i32(atlas->line_height, height);
-    for (int y = 0, wy = atlas->cursor_y; y < height; y++, wy++)
+    atlas->line_height = max_i32(atlas->line_height, height + 2 * padding);
+    for (int y = -padding, wy = atlas->cursor_y; y < height + padding; y++, wy++)
     {
-        int line_width = width * 4;
-        uint8* source = pixels + y * line_width;
-        uint8* destination = atlas->data + (wy * atlas->width + atlas->cursor_x) * 4;
-        memcpy(destination, source, line_width);
+        for (int x = -padding, wx = atlas->cursor_x; x < width + padding; x++, wx++)
+        {
+            int px = clamp_i32(x, 0, width - 1);
+            int py = clamp_i32(y, 0, height - 1);
+            uint8* source = pixels + (py * width + px) * 4;
+            uint8* destination = atlas->data + (wy * atlas->width + wx) * 4;
+            memcpy(destination, source, 4);
+        }
     }
 
     stbi_image_free(pixels);
 
     Texture result;
-    result.uv1.x = (float) atlas->cursor_x / (float) atlas->width;
-    result.uv1.y = (float)(atlas->cursor_y + height) / (float) atlas->height;
-    result.uv2.x = (float)(atlas->cursor_x + width) / (float) atlas->width;
-    result.uv2.y = (float) atlas->cursor_y / (float) atlas->height;
+    result.uv1.x = (float)(atlas->cursor_x + padding) / (float) atlas->width;
+    result.uv1.y = (float)(atlas->cursor_y + padding + height) / (float) atlas->height;
+    result.uv2.x = (float)(atlas->cursor_x + padding + width) / (float) atlas->width;
+    result.uv2.y = (float)(atlas->cursor_y + padding) / (float) atlas->height;
 
-    atlas->cursor_x += width;
+    atlas->cursor_x += width + 2 * padding;
 
     return result;
 
