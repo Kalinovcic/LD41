@@ -1,4 +1,9 @@
+int32 max_i32(int32 a, int32 b) { return a > b ? a : b; }
+int32 min_i32(int32 a, int32 b) { return a < b ? a : b; }
+
+float max_f32(float a, float b) { return a > b ? a : b; }
 float min_f32(float a, float b) { return a < b ? a : b; }
+
 
 Vector2 vector2(float x, float y                  ) { return { x, y       }; }
 Vector3 vector3(float x, float y, float z         ) { return { x, y, z    }; }
@@ -97,6 +102,12 @@ Vector3 cross(Vector3 a, Vector3 b)
                    (a.z * b.x) - (a.x * b.z),
                    (a.x * b.y) - (a.y * b.x));
 }
+
+
+float   lerp(float a,   float b,   float t) { return a * (1 - t) + b * t; }
+Vector2 lerp(Vector2 a, Vector2 b, float t) { return a * (1 - t) + b * t; }
+Vector3 lerp(Vector3 a, Vector3 b, float t) { return a * (1 - t) + b * t; }
+Vector4 lerp(Vector4 a, Vector4 b, float t) { return a * (1 - t) + b * t; }
 
 
 #define SetMatrix(out, a00, a01, a02, a03, a10, a11, a12, a13, a20, a21, a22, a23, a30, a31, a32, a33) \

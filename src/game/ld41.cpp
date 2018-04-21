@@ -59,158 +59,93 @@ union Matrix4
 };
 
 #include "math_ops.inl"
+#include "renderer.inl"
+
+struct Note
+{
+    int lane;
+    float at;
+    float duration;
+};
 
 struct Game
 {
+    bool initialized;
     LK_Platform* platform;
+
+    Renderer renderer;
 
     struct
     {
-        GLuint shader;
-        GLuint atlas;
-        GLuint vao;
-        GLuint vbo;
-        GLuint ibo;
+        Texture marker;
+        Texture marker_bed;
+        Texture white;
+    } art;
 
-        Matrix4 camera_transform;
-    } renderer;
+    struct
+    {
+        float time;
+        float length;
+        float window;
 
-    bool initialized;
+        std::vector<Note> notes;
+    } rhythm;
 
     char hotload_padding[512];
 };
 
+static Game* the_game;
 
-struct Vertex
+const float RHYTHM_EXIT_WIDTH = 1.5;
+
+void draw_lanes()
 {
-    Vector2 position;
-    Vector2 uv;
-};
+    float width = the_game->renderer.camera_width;
+    float side = RHYTHM_EXIT_WIDTH;
 
-std::vector<Vertex> render_vertices;
-std::vector<uint16> render_indices;
+    for (int lane = 0; lane < 4; lane++)
+    {
+        push_rectangle({ side, (float) lane }, { width - side, 1 }, the_game->art.marker_bed);
+    }
 
-void push_rectangle(float x, float y, float width, float height,
-                    float u1, float v1, float u2, float v2)
-{
-    float x1 = x;
-    float x2 = x + width;
-    float y1 = y;
-    float y2 = y + height;
-
-    uint16 base_index = render_vertices.size();
-
-    render_vertices.push_back({ { x1, y1 }, { u1, v1 } });
-    render_vertices.push_back({ { x2, y1 }, { u2, v1 } });
-    render_vertices.push_back({ { x2, y2 }, { u2, v2 } });
-    render_vertices.push_back({ { x1, y2 }, { u1, v2 } });
-
-    render_indices.push_back(base_index + 0);
-    render_indices.push_back(base_index + 1);
-    render_indices.push_back(base_index + 2);
-    render_indices.push_back(base_index + 0);
-    render_indices.push_back(base_index + 2);
-    render_indices.push_back(base_index + 3);
+    push_rectangle({ 0, 0 }, { side, 4 }, the_game->art.white);
 }
 
-void init_renderer(Game* game)
+void draw_marker(int lane, float time, float duration)
 {
-    auto& r = game->renderer;
+    auto& rhythm = the_game->rhythm;
 
-    glGenVertexArrays(1, &r.vao);
-    glBindVertexArray(r.vao);
+    float side = RHYTHM_EXIT_WIDTH;
+    float x_scale = (the_game->renderer.camera_width - side) / rhythm.window;
+    float x = (time - rhythm.time) * x_scale + side;
+    float width = max_f32(duration * x_scale - 1, 0);
+    float y = (float) lane;
 
-    glGenBuffers(1, &r.vbo);
-    glGenBuffers(1, &r.ibo);
+    Texture texture = the_game->art.marker;
+    float center_u = (texture.uv2.x - texture.uv1.x) * 0.5;
 
-    glEnableVertexAttribArray(0);
-    glEnableVertexAttribArray(1);
+    Texture left = texture;
+    Texture middle = texture;
+    Texture right = texture;
+    left.uv2.x = center_u;
+    middle.uv1.x = middle.uv2.x = center_u;
+    right.uv1.x = center_u;
 
-    glBindBuffer(GL_ARRAY_BUFFER, r.vbo);
-    glVertexAttribPointer(0, 2, GL_FLOAT, false, sizeof(Vertex), (void*) offsetof(Vertex, position));
-    glVertexAttribPointer(1, 2, GL_FLOAT, false, sizeof(Vertex), (void*) offsetof(Vertex, uv));
+    float t = sin(the_game->platform->time.seconds + time) * 0.5 + 0.5;
+    Vector4 red = vector4(1, 0, 0, 1);
+    Vector4 yellow = vector4(1, 1, 0, 1);
+    Vector4 green = vector4(0, 1, 0, 1);
 
+    Vector4 color;
+    if (t < 0.5)
+        color = lerp(red, yellow, t * 2);
+    else
+        color = lerp(yellow, green, (t - 0.5) * 2);
 
-
-    const char* vs_source =
-        "#version 430\n"
-        "uniform mat4 transform;\n"
-        "layout(location = 0) in vec2 vertex_position;\n"
-        "layout(location = 1) in vec2 vertex_uv;\n"
-        "out vec2 fragment_uv;\n"
-        "void main()\n"
-        "{\n"
-        "    gl_Position = vec4(vertex_position, 0, 1) * transform;\n"
-        "    fragment_uv = vertex_uv;\n"
-        "}\n";
-
-    const char* fs_source =
-        "#version 430\n"
-        "uniform sampler2D atlas;\n"
-        "in vec2 fragment_uv;\n"
-        "out vec4 pixel_color;\n"
-        "void main()\n"
-        "{\n"
-        "    pixel_color = texture(atlas, fragment_uv);\n"
-        "}\n";
-
-    GLuint vs = glCreateShader(GL_VERTEX_SHADER);
-    GLuint fs = glCreateShader(GL_FRAGMENT_SHADER);
-    glShaderSource(vs, 1, &vs_source, NULL);
-    glShaderSource(fs, 1, &fs_source, NULL);
-    glCompileShader(vs);
-    glCompileShader(fs);
-
-    r.shader = glCreateProgram();
-    glAttachShader(r.shader, vs);
-    glAttachShader(r.shader, fs);
-    glLinkProgram(r.shader);
-
-    glDetachShader(r.shader, vs);
-    glDetachShader(r.shader, fs);
-    glDeleteShader(vs);
-    glDeleteShader(fs);
-
-
-
-    int atlas_width;
-    int atlas_height;
-    int dont_care;
-    uint8* atlas = stbi_load("test.png", &atlas_width, &atlas_height, &dont_care, 4);
-
-    glGenTextures(1, &r.atlas);
-    glBindTexture(GL_TEXTURE_2D, r.atlas);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, atlas_width, atlas_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, atlas);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    push_rectangle({ x,                 y }, { 0.5f,  1 }, left,   color);
+    push_rectangle({ x + 0.5f,          y }, { width, 1 }, middle, color);
+    push_rectangle({ x + 0.5f + width,  y }, { 0.5f,  1 }, right,  color);
 }
-
-void rendering_flush(Game* game)
-{
-    auto& r = game->renderer;
-
-    glBindBuffer(GL_ARRAY_BUFFER, r.vbo);
-    glBufferData(GL_ARRAY_BUFFER, render_vertices.size() * sizeof(Vertex), &render_vertices[0], GL_STATIC_DRAW);
-
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, r.ibo);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, render_indices.size() * sizeof(uint16), &render_indices[0], GL_STATIC_DRAW);
-
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, r.atlas);
-
-    glUseProgram(r.shader);
-    GLint transform = glGetUniformLocation(r.shader, "transform");
-    GLint atlas = glGetUniformLocation(r.shader, "atlas");
-    glUniformMatrix4fv(transform, 1, true, r.camera_transform.e);
-    glUniform1i(atlas, 0);
-
-    glBindVertexArray(r.vao);
-    glDrawElements(GL_TRIANGLES, render_indices.size(), GL_UNSIGNED_SHORT, 0);
-
-    render_vertices.clear();
-    render_indices.clear();
-}
-
 
 LK_CLIENT_EXPORT
 void lk_client_init(LK_Platform* platform)
@@ -243,9 +178,17 @@ void lk_client_frame(LK_Platform* platform)
     }
 
     Game* game = (Game*) platform->client_data;
+    the_game = game;
+
     if (!game->initialized)
     {
-        init_renderer(game);
+        Atlas* atlas = &game->renderer.atlas;
+        create_atlas(atlas, 512);
+        game->art.marker = add_texture(atlas, "data/textures/marker.png");
+        game->art.marker_bed = add_texture(atlas, "data/textures/marker_bed.png");
+        game->art.white = add_texture(atlas, "data/textures/white.png");
+
+        init_renderer(&game->renderer);
         game->initialized = true;
     }
 
@@ -255,17 +198,66 @@ void lk_client_frame(LK_Platform* platform)
     glViewport(0, 0, platform->window.width, platform->window.height);
 
     float aspect = (float) platform->window.width / (float) platform->window.height;
-    float camera_x = sin(platform->time.seconds) * 1;
-    float camera_y = cos(platform->time.seconds) * 1;
-    float camera_height = 3;
-    float camera_width = camera_height * aspect;
+    float camera_x = 0;
+    float camera_y = 0;
+    game->renderer.camera_height = 3;
+    game->renderer.camera_width = game->renderer.camera_height * aspect;
     game->renderer.camera_transform = orthographic(
-        camera_x - camera_width  * 0.5, camera_x + camera_width  * 0.5,
-        camera_y - camera_height * 0.5, camera_y + camera_height * 0.5,
+        camera_x - game->renderer.camera_width  * 0.5, camera_x + game->renderer.camera_width  * 0.5,
+        camera_y - game->renderer.camera_height * 0.5, camera_y + game->renderer.camera_height * 0.5,
         -1, 1);
 
-    push_rectangle(-0.5, -0.5, 1, 1, 0, 0, 1, 1);
-    rendering_flush(game);
+    push_centered_rectangle({ -1, 0 }, { 1, 1 }, game->art.white, { 0, 1, 1, 1 });
+
+    float t = platform->time.seconds;
+    push_centered_rectangle({  sinf(t),  cosf(t) }, { 1, 1 }, game->art.marker);
+    push_centered_rectangle({ -sinf(t), -cosf(t) }, { 1, 1 }, game->art.marker);
+    push_centered_rectangle({ -cosf(t),  sinf(t) }, { 1, 1 }, game->art.marker);
+    push_centered_rectangle({  cosf(t), -sinf(t) }, { 1, 1 }, game->art.marker);
+
+    rendering_flush(&game->renderer);
+
+
+    {
+        float aspect = (float) platform->window.width / (float) platform->window.height;
+        game->renderer.camera_height = 8;
+        game->renderer.camera_width = game->renderer.camera_height * aspect;
+        game->renderer.camera_transform = orthographic(
+            0, game->renderer.camera_width,
+            0, game->renderer.camera_height, -1, 1);
+    }
+
+    game->rhythm.length = 10;
+    game->rhythm.window = 7;
+    game->rhythm.time = fmod(platform->time.seconds * 3, game->rhythm.length + 2) - 2;
+
+    static bool created = false;
+    if (game->rhythm.time < 0)
+    {
+        if (!created)
+        {
+            game->rhythm.notes.clear();
+            for (int i = 0; i < 6; i++)
+            {
+                float at = rand() % 1000 / 1000.0f * 8;
+                float duration = rand() % 1000 / 1000.0f * 2;
+                game->rhythm.notes.push_back({ rand() % 4, at, duration });
+            }
+        }
+        created = true;
+    }
+    else
+    {
+        created = false;
+    }
+
+    draw_lanes();
+    for (Note note : game->rhythm.notes)
+    {
+        draw_marker(note.lane, note.at, note.duration);
+    }
+
+    rendering_flush(&game->renderer);
 }
 
 LK_CLIENT_EXPORT
