@@ -121,6 +121,15 @@ Vector3 lerp(Vector3 a, Vector3 b, float t) { return a * (1 - t) + b * t; }
 Vector4 lerp(Vector4 a, Vector4 b, float t) { return a * (1 - t) + b * t; }
 
 
+Vector2 min(Vector2 a, Vector2 b) { return vector2(min_f32(a.x, b.x), min_f32(a.y, b.y)                                      ); }
+Vector3 min(Vector3 a, Vector3 b) { return vector3(min_f32(a.x, b.x), min_f32(a.y, b.y), min_f32(a.z, b.z)                   ); }
+Vector4 min(Vector4 a, Vector4 b) { return vector4(min_f32(a.x, b.x), min_f32(a.y, b.y), min_f32(a.z, b.z), min_f32(a.w, b.w)); }
+
+Vector2 max(Vector2 a, Vector2 b) { return vector2(max_f32(a.x, b.x), max_f32(a.y, b.y)                                      ); }
+Vector3 max(Vector3 a, Vector3 b) { return vector3(max_f32(a.x, b.x), max_f32(a.y, b.y), max_f32(a.z, b.z)                   ); }
+Vector4 max(Vector4 a, Vector4 b) { return vector4(max_f32(a.x, b.x), max_f32(a.y, b.y), max_f32(a.z, b.z), max_f32(a.w, b.w)); }
+
+
 #define SetMatrix(out, a00, a01, a02, a03, a10, a11, a12, a13, a20, a21, a22, a23, a30, a31, a32, a33) \
     (out) = {{{ a00, a10, a20, a30 }, { a01, a11, a21, a31 }, { a02, a12, a22, a32 }, { a03, a13, a23, a33 }}};
 

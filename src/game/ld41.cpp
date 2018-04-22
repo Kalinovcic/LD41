@@ -126,6 +126,9 @@ struct Game
         Tile* tiles;
 
         std::vector<Entity> entities;
+
+        Vector2 camera_position;
+        Vector2 target_camera_position;
     } level;
 
     char hotload_padding[512];
@@ -336,9 +339,105 @@ void generate_level_cave(int width, int height)
     delete[] read;
 }
 
+static bool intersect_aabb_aabb(Vector2 center1, Vector2 size1, Vector2 center2, Vector2 size2)
+{
+    size1 *= 0.5f;
+    size2 *= 0.5f;
+    Vector2 min1 = center1 - size1;
+    Vector2 max1 = center1 + size1;
+    Vector2 min2 = center2 - size2;
+    Vector2 max2 = center2 + size2;
+    return (max1.x > min2.x) && (min1.x < max2.x) &&
+           (max1.y > min2.y) && (min1.y < max2.y);
+}
+
+static float collide_aabb_aabb_axis(float center1, float size1, float center2, float size2)
+{
+    if (center1 < center2)
+    {
+        float my_right = center1 + size1 * 0.5;
+        float their_left = center2 - size2 * 0.5;
+        return their_left - my_right;
+    }
+    else
+    {
+        float my_left = center1 - size1 * 0.5;
+        float their_right = center2 + size2 * 0.5;
+        return their_right - my_left;
+    }
+}
+
+static Vector2 collide_aabb_aabb(Vector2 center1, Vector2 size1, Vector2 center2, Vector2 size2)
+{
+    if (!intersect_aabb_aabb(center1, size1, center2, size2))
+    {
+        return center1;
+    }
+
+    float x_axis = collide_aabb_aabb_axis(center1.x, size1.x, center2.x, size2.x);
+    float y_axis = collide_aabb_aabb_axis(center1.y, size1.y, center2.y, size2.y);
+
+    if (fabs(x_axis) < fabs(y_axis))
+    {
+        center1.x += x_axis;
+    }
+    else
+    {
+        center1.y += y_axis;
+    }
+
+    return center1;
+}
+
+static void move_entity(Entity* entity, Vector2 delta)
+{
+    auto& level = the_game->level;
+
+    const float MAX_MOVE_DISTANCE = 0.1;
+    float distance = length(delta);
+    if (distance > MAX_MOVE_DISTANCE)
+    {
+        Vector2 my_delta = noz(delta) * MAX_MOVE_DISTANCE;
+        move_entity(entity, delta - my_delta);
+
+        distance = MAX_MOVE_DISTANCE;
+        delta = my_delta;
+    }
+
+    entity->position += delta;
+    Vector2 min_extreme = entity->position - entity->size * 0.5;
+    Vector2 max_extreme = entity->position + entity->size * 0.5;
+
+    int min_x = max_i32((int)(floorf(min_extreme.x) + 0.5f), 0);
+    int min_y = max_i32((int)(floorf(min_extreme.y) + 0.5f), 0);
+    int max_x = min_i32((int)(ceilf (max_extreme.x) + 0.5f), level.width  - 1);
+    int max_y = min_i32((int)(ceilf (max_extreme.y) + 0.5f), level.height - 1);
+
+    for (int y = min_y; y <= max_y; y++)
+    {
+        for (int x = min_x; x <= max_x; x++)
+        {
+            Tile* tile = level.tiles + y * level.width + x;
+            if (!tile->z) continue;
+
+            Vector2 tile_center = vector2(x + 0.5f, y + 0.5f);
+            Vector2 tile_size = { 1, 1 };
+
+            Vector2 old_position = entity->position;
+            Vector2 new_position = collide_aabb_aabb(old_position, entity->size, tile_center, tile_size);
+            entity->position = new_position;
+        }
+    }
+}
+
 void update_level()
 {
     auto& level = the_game->level;
+
+    if (the_game->platform->keyboard.state[LK_KEY_SPACE].pressed)
+    {
+        generate_level_cave(64, 64);
+    }
 
     for (Entity& entity : level.entities)
     {
@@ -355,12 +454,16 @@ void update_level()
             if (keyboard.state['W'].down) move.y += 1;
             if (keyboard.state['S'].down) move.y -= 1;
 
-            float move_distance = 20 * the_game->platform->time.delta_seconds;
-            entity.position += noz(move) * move_distance;
+            float move_distance = 6 * the_game->platform->time.delta_seconds;
+            move_entity(&entity, noz(move) * move_distance);
+            level.target_camera_position = entity.position;
         } break;
 
         }
     }
+
+    float camera_t = min_f32(1, the_game->platform->time.delta_seconds * 1.2f);
+    level.camera_position = lerp(level.camera_position, level.target_camera_position, camera_t);
 }
 
 Vector4 get_tile_color(int x, int y)
@@ -560,8 +663,11 @@ void lk_client_frame(LK_Platform* platform)
 
     if (!game->level.tiles)
     {
-        load_level_from_image("data/level/level.png");
+        generate_level_cave(64, 64);
+        // load_level_from_image("data/level/level.png");
     }
+
+    update_level();
 
 
     glClearColor(0, 0, 0, 1);
@@ -570,21 +676,15 @@ void lk_client_frame(LK_Platform* platform)
     glViewport(0, 0, platform->window.width, platform->window.height);
 
     float aspect = (float) platform->window.width / (float) platform->window.height;
-    float camera_x = 32; // 16 + sin(platform->time.seconds * 0.3) * 6;
-    float camera_y = 32; // 16 + cos(platform->time.seconds * 0.3) * 6;
-    game->renderer.camera_height = 64;
+    float camera_x = the_game->level.camera_position.x; // 16 + sin(platform->time.seconds * 0.3) * 6;
+    float camera_y = the_game->level.camera_position.y; // 16 + cos(platform->time.seconds * 0.3) * 6;
+    game->renderer.camera_height = 16;
     game->renderer.camera_width = game->renderer.camera_height * aspect;
     game->renderer.camera_transform = orthographic(
         camera_x - game->renderer.camera_width  * 0.5, camera_x + game->renderer.camera_width  * 0.5,
         camera_y - game->renderer.camera_height * 0.5, camera_y + game->renderer.camera_height * 0.5,
         -1, 1);
 
-    if (platform->keyboard.state[LK_KEY_SPACE].pressed)
-    {
-        generate_level_cave(64, 64);
-    }
-
-    update_level();
     render_level();
     // render_string("This font is horrible", camera_x - 4, camera_y, 0.5, 0.5);
     // render_string("THIS FONT IS TOLERABLE", camera_x - 4, camera_y + 1, 0.5, 0.5);
