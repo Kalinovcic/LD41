@@ -77,6 +77,7 @@ struct Note
     float score;
 
     bool pressed;
+    bool played;
 };
 
 enum Brain
@@ -94,10 +95,18 @@ struct Entity
     Texture texture;
 };
 
+enum Game_State
+{
+    GAME_ROGUE,
+    GAME_RHYTHM,
+};
+
 struct Game
 {
     bool initialized;
     LK_Platform* platform;
+
+    Game_State state = GAME_ROGUE;
 
     Renderer renderer;
 
@@ -115,7 +124,14 @@ struct Game
 
     struct
     {
+        LK_Wave kick;
+        LK_Wave snare;
+    } sounds;
+
+    struct
+    {
         float time;
+        float playback_time;
         float length;
         float window;
 
@@ -181,6 +197,44 @@ float random_float()
 {
     return (float) rand() / (float) RAND_MAX;
 }
+
+void render_string(const char* text, float x, float y, float sx, float sy)
+{
+    const char FONT_CHARS[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ.,!?abcdefghijklmnopqrstuvwxyz    0123456789%";
+
+    Texture font = the_game->art.font;
+
+    float cx = x;
+    while (*text)
+    {
+        int index;
+        for (index = 0; index < sizeof(FONT_CHARS); index++)
+            if (FONT_CHARS[index] == *text)
+                break;
+        if (index == sizeof(FONT_CHARS))
+            index = 29;
+        text++;
+
+        int fx = index % 30;
+        int fy = 2 - index / 30;
+
+        float u1 = (fx * 5 + 0) / 150.0f + 1e-3;
+        float u2 = (fx * 5 + 5) / 150.0f - 1e-3;
+        float v1 = (fy * 7 + 0) /  21.0f + 1e-3;
+        float v2 = (fy * 7 + 7) /  21.0f - 1e-3;
+
+        Texture character;
+        character.uv1.x = lerp(font.uv1.x, font.uv2.x, u1);
+        character.uv2.x = lerp(font.uv1.x, font.uv2.x, u2);
+        character.uv1.y = lerp(font.uv1.y, font.uv2.y, v1);
+        character.uv2.y = lerp(font.uv1.y, font.uv2.y, v2);
+
+        push_rectangle({ cx, y }, { sx, sy }, character);
+        cx += sx * 1.1;
+    }
+}
+
+#include "rhythm.inl"
 
 static int generator_count_neighbors(Tile* read, int width, int height, int x, int y)
 {
@@ -341,7 +395,7 @@ void generate_level_cave(int width, int height)
 
     // place monsters
 
-    for (int i = 0; i < 80; i++)
+    for (int i = 0; i < 8000; i++)
     {
         int x = random_int(width - 1);
         int y = random_int(height - 1);
@@ -481,6 +535,12 @@ void update_level()
             float move_distance = 6 * the_game->platform->time.delta_seconds;
             move_entity(&entity, noz(move) * move_distance);
             level.target_camera_position = entity.position;
+
+            if (keyboard.state[LK_KEY_SPACE].pressed)
+            {
+                the_game->state = GAME_RHYTHM;
+                generate_rhythm();
+            }
         } break;
 
         case BRAIN_MONSTER:
@@ -686,44 +746,6 @@ void render_shadows()
     glDeleteTextures(1, &shadow_texture);
 }
 
-void render_string(const char* text, float x, float y, float sx, float sy)
-{
-    const char FONT_CHARS[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ.,!?abcdefghijklmnopqrstuvwxyz    0123456789%";
-
-    Texture font = the_game->art.font;
-
-    float cx = x;
-    while (*text)
-    {
-        int index;
-        for (index = 0; index < sizeof(FONT_CHARS); index++)
-            if (FONT_CHARS[index] == *text)
-                break;
-        if (index == sizeof(FONT_CHARS))
-            index = 29;
-        text++;
-
-        int fx = index % 30;
-        int fy = 2 - index / 30;
-
-        float u1 = (fx * 5 + 0) / 150.0f + 1e-3;
-        float u2 = (fx * 5 + 5) / 150.0f - 1e-3;
-        float v1 = (fy * 7 + 0) /  21.0f + 1e-3;
-        float v2 = (fy * 7 + 7) /  21.0f - 1e-3;
-
-        Texture character;
-        character.uv1.x = lerp(font.uv1.x, font.uv2.x, u1);
-        character.uv2.x = lerp(font.uv1.x, font.uv2.x, u2);
-        character.uv1.y = lerp(font.uv1.y, font.uv2.y, v1);
-        character.uv2.y = lerp(font.uv1.y, font.uv2.y, v2);
-
-        push_rectangle({ cx, y }, { sx, sy }, character);
-        cx += sx * 1.1;
-    }
-}
-
-#include "rhythm.inl"
-
 LK_CLIENT_EXPORT
 void lk_client_init(LK_Platform* platform)
 {
@@ -741,6 +763,8 @@ void lk_client_init(LK_Platform* platform)
     platform->audio.strategy = LK_AUDIO_MIXER;
 
     Game* game = (Game*) calloc(1, sizeof(Game));
+    new (game) Game;
+
     game->platform = platform;
     platform->client_data = game;
 }
@@ -770,6 +794,9 @@ void lk_client_frame(LK_Platform* platform)
         game->art.shadow = add_texture(atlas, "data/textures/shadow.png");
         game->art.stones = add_texture(atlas, "data/textures/stones.png");
 
+        game->sounds.kick = load_wav_file("data/sounds/kick.wav");
+        game->sounds.snare = load_wav_file("data/sounds/snare.wav");
+
         init_renderer(&game->renderer);
         game->initialized = true;
     }
@@ -780,8 +807,10 @@ void lk_client_frame(LK_Platform* platform)
         // load_level_from_image("data/level/level.png");
     }
 
-    update_level();
-
+    if (game->state == GAME_ROGUE)
+    {
+        update_level();
+    }
 
     glClearColor(0, 0, 0, 1);
     glClear(GL_COLOR_BUFFER_BIT);
@@ -814,8 +843,11 @@ void lk_client_frame(LK_Platform* platform)
             0, game->renderer.camera_height, -1, 1);
     }
 
-    rhythm_controls();
-    // rhythm_render();
+    if (game->state == GAME_RHYTHM)
+    {
+        rhythm_controls();
+        rhythm_render();
+    }
 }
 
 LK_CLIENT_EXPORT

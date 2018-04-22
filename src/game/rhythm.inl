@@ -1,3 +1,115 @@
+static byte* read_all_bytes_from_file(const char* path)
+{
+    FILE* file = fopen(path, "rb");
+    if (!file)
+    {
+        printf("Failed to open file %s\n", path);
+        return NULL;
+    }
+
+    fseek(file, 0, SEEK_END);
+    uint64 size = ftell(file);
+    fseek(file, 0, SEEK_SET);
+
+    byte* data = (byte*) malloc(size);
+    fread(data, size, 1, file);
+
+    fclose(file);
+
+    return data;
+}
+
+static LK_Wave load_wav_file(const char* path)
+{
+    #define ReadNext(Type) *((Type*)(file += sizeof(Type)) - 1)
+
+    byte* file;
+    LK_U32 chunk_id;
+    LK_U32 chunk_size;
+    auto seek_to_chunk = [&](LK_U32 search_id)
+    {
+        while (true)
+        {
+            chunk_id = ReadNext(LK_U32);
+            chunk_size = ReadNext(LK_U32);
+            if (chunk_id == search_id) return;
+            file += chunk_size;
+        }
+    };
+
+    file = read_all_bytes_from_file(path);
+    if (!file)
+    {
+        goto failure;
+    }
+
+    chunk_id = ReadNext(LK_U32);
+    chunk_size = ReadNext(LK_U32);
+    LK_U32 riff_format = ReadNext(LK_U32);
+    if (chunk_id    != 0x46464952) goto failure; // "RIFF" chunk
+    if (riff_format != 0x45564157) goto failure; // "WAVE"
+
+    struct Info
+    {
+        LK_U16 encoding;
+        LK_U16 channels;
+        LK_U32 frequency;
+        LK_U32 byte_rate;
+        LK_U16 block_align;
+        LK_U16 bits_per_sample;
+    };
+
+    seek_to_chunk(0x20746D66); // "fmt " chunk
+    Info info = ReadNext(Info);
+    if (info.encoding != 1) goto failure; // PCM
+    if (info.byte_rate != info.frequency * info.channels * (info.bits_per_sample / 8)) goto failure;
+    if (info.block_align != info.channels * (info.bits_per_sample / 8)) goto failure;
+    if (info.bits_per_sample != 16) goto failure;
+    if (info.channels != 1 && info.channels != 2) goto failure;
+
+    seek_to_chunk(0x61746164); // "data" chunk
+
+    LK_Wave sound;
+    sound.samples = (LK_S16*) malloc(chunk_size);
+    sound.count = chunk_size / (2 * info.channels);
+    sound.channels = info.channels;
+    sound.frequency = info.frequency;
+    memcpy(sound.samples, file, chunk_size);
+
+    #undef ReadNext
+    return sound;
+
+    failure:
+    {
+        printf("Failed to load wave file %s!\n", path);
+
+        LK_Wave sound;
+        sound.samples = 0;
+        sound.count = 0;
+        sound.channels = 1;
+        sound.frequency = 44100;
+        return sound;
+    }
+}
+
+static void play_sound(Game* game, LK_Wave* wave, float volume, float pitch, bool loop)
+{
+    LK_Sound* slots = game->platform->audio.mixer_slots;
+    for (int sound_index = 0; sound_index < LK_MIXER_SLOT_COUNT; sound_index++)
+    {
+        LK_Sound* sound = slots + sound_index;
+        if (sound->playing) continue;
+
+        sound->playing = true;
+        sound->wave = *wave;
+        sound->wave.frequency = (LK_U32)(sound->wave.frequency * pitch);
+        sound->loop = loop;
+        sound->volume = volume;
+
+        return;
+    }
+}
+
 Note* find_closest_note(int lane)
 {
     Note* closest = NULL;
@@ -66,36 +178,6 @@ static LK_Key LANE_CONTROLS[4] = { LK_KEY_A, LK_KEY_S, LK_KEY_D, LK_KEY_F };
 void rhythm_controls()
 {
     auto& rhythm = the_game->rhythm;
-    rhythm.length = 10;
-    rhythm.window = 7;
-    rhythm.time = fmod(the_game->platform->time.seconds, rhythm.length + 2) - 2;
-
-    static bool created = false;
-    if (rhythm.time < 0)
-    {
-        if (!created)
-        {
-            rhythm.notes.clear();
-            for (int i = 0; i < 6; i++)
-            {
-                float at = rand() % 1000 / 1000.0f * 8;
-                float duration = rand() % 1000 / 1000.0f * 2;
-                if (duration < 1.5)
-                {
-                    duration = 0;
-                }
-
-                rhythm.notes.push_back({ rand() % 2, at, duration, -1, -1 });
-            }
-
-            memset(rhythm.holding, 0, sizeof(rhythm.holding));
-        }
-        created = true;
-    }
-    else
-    {
-        created = false;
-    }
 
     for (int lane = 0; lane < 4; lane++)
     {
@@ -122,6 +204,45 @@ void rhythm_controls()
                 note->pressed = true;
                 rhythm.holding[lane] = NULL;
             }
+        }
+    }
+
+    rhythm.time += the_game->platform->time.delta_seconds;
+    if (rhythm.time > rhythm.length)
+    {
+        the_game->state = GAME_ROGUE;
+    }
+
+
+
+
+    LK_Wave* lane_to_sound[] =
+    {
+        &the_game->sounds.kick,
+        &the_game->sounds.snare,
+        &the_game->sounds.kick,
+        &the_game->sounds.kick
+    };
+
+    rhythm.playback_time += the_game->platform->time.delta_seconds;
+    for (Note& note : the_game->rhythm.notes)
+    {
+        if (!note.played && note.at <= the_game->rhythm.playback_time)
+        {
+            note.played = true;
+
+            LK_Wave* sound = lane_to_sound[note.lane];
+            play_sound(the_game, sound, 1, 1, false);
+        }
+    }
+
+    for (int lane = 0; lane < 4; lane++)
+    {
+        LK_Key key = LANE_CONTROLS[lane];
+        if (the_game->platform->keyboard.state[key].pressed)
+        {
+            LK_Wave* sound = lane_to_sound[lane];
+            play_sound(the_game, sound, 1, 1, false);
         }
     }
 }
@@ -207,4 +328,49 @@ void rhythm_render()
     }
 
     rendering_flush(&the_game->renderer);
+}
+
+void generate_rhythm()
+{ 
+    auto& rhythm = the_game->rhythm;
+
+    rhythm.length = 2.5;
+    rhythm.window = 2;
+    rhythm.playback_time = 0;
+    rhythm.time = -3;
+    
+    int minimum_notes = 4;
+
+    int note_count = 0;
+    while (note_count < minimum_notes)
+    {
+        note_count = 0;
+        rhythm.notes.clear();
+        for (int i = 0; i < 8; i++)
+        {
+            float at = i * 0.25f;
+            float duration = 0;
+
+            float chance = (i % 2) ? 0.3 : 0.8;
+            float roll = random_float();
+            if (roll <= chance)
+            {
+                rhythm.notes.push_back({ 0, at, duration, -1, -1 });
+                note_count++;
+            }
+        }
+        for (int i = 0; i < 8; i++)
+        {
+            float at = i * 0.25f;
+            float duration = 0;
+
+            float chance = (i % 2) ? 0.1 : 0.05;
+            float roll = random_float();
+            if (roll <= chance)
+            {
+                rhythm.notes.push_back({ 1, at, duration, -1, -1 });
+                note_count++;
+            }
+        }
+    }
 }
