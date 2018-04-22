@@ -107,6 +107,9 @@ struct Game
         Texture white;
         Texture multiply;
         Texture font;
+        Texture barrel;
+        Texture shadow;
+        Texture stones;
     } art;
 
     struct
@@ -281,7 +284,7 @@ void generate_level_cave(int width, int height)
                     treasure.brain = BRAIN_TREASURE;
                     treasure.position = vector2(x + 0.5, y + 0.5);
                     treasure.size = vector2(1, 1);
-                    treasure.texture = the_game->art.marker;
+                    treasure.texture = the_game->art.barrel;
                     level.entities.push_back(treasure);
                 }
             }
@@ -471,7 +474,7 @@ Vector4 get_tile_color(int x, int y)
     auto& level = the_game->level;
     Tile* tile = level.tiles + y * level.width + x;
 
-    uint32 colors[] = { 0x3993ED, 0xA4F250, 0xD46F0B };
+    uint32 colors[] = { 0x5FA1D9, 0x574E8C, 0x918DA8 };
     return rgb(colors[tile->z]);
 }
 
@@ -570,10 +573,88 @@ void render_level()
         }
     }
 
+    rendering_flush(&the_game->renderer);
+
+    for (int tile_y = 0; tile_y < level.height; tile_y++)
+    {
+        for (int tile_x = 0; tile_x < level.width; tile_x++)
+        {
+            int variation = (tile_x * 59351 + tile_y * 903961) % 4;
+            int vx = (variation & 1) * 0.5f;
+            int vy = (variation >> 1) * 0.5f;
+
+            Texture texture = the_game->art.stones;
+            Vector2 middle = (texture.uv1 + texture.uv2) * 0.5f;
+            if (vx) texture.uv1.x = middle.x;
+            else    texture.uv2.x = middle.x;
+            if (vy) texture.uv1.y = middle.y;
+            else    texture.uv2.y = middle.y;
+
+            push_centered_rectangle(vector2(tile_x + 0.5f, tile_y + 0.5f), { 1, 1 }, texture);
+        }
+    }
+
+    rendering_flush(&the_game->renderer, true);
+
     for (Entity& entity : level.entities)
     {
+        push_centered_rectangle(entity.position, entity.size * 1.5f, the_game->art.shadow);
         push_centered_rectangle(entity.position, entity.size, entity.texture);
     }
+
+    rendering_flush(&the_game->renderer);
+}
+
+bool does_tile_create_shadow(int x, int y)
+{
+    auto& level = the_game->level;
+    if (x < 0 || x >= level.width)  return true;
+    if (y < 0 || y >= level.height) return true;
+    return level.tiles[y * level.width + x].z;
+}
+
+void render_shadows()
+{
+    auto& level = the_game->level;
+    auto& renderer = the_game->renderer;
+
+    uint8* pixels = (uint8*) calloc(1, (level.width + 1) * (level.height + 1) * 4);
+
+    for (int tile_y = 0; tile_y <= level.height; tile_y++)
+    {
+        for (int tile_x = 0; tile_x <= level.width; tile_x++)
+        {
+            int count = 0;
+            count += does_tile_create_shadow(tile_x - 1, tile_y - 1) ? 1 : 0;
+            count += does_tile_create_shadow(tile_x - 0, tile_y - 1) ? 1 : 0;
+            count += does_tile_create_shadow(tile_x - 1, tile_y - 0) ? 1 : 0;
+            count += does_tile_create_shadow(tile_x - 0, tile_y - 0) ? 1 : 0;
+
+            uint8* alpha = pixels + (tile_y * (level.width + 1) + tile_x) * 4 + 3;
+
+            const uint8 COUNT_TO_ALPHA[] = { 0, 20, 20, 50, 150 };
+            *alpha = COUNT_TO_ALPHA[count];
+        }
+    }
+
+    GLuint shadow_texture;
+    glGenTextures(1, &shadow_texture);
+    glBindTexture(GL_TEXTURE_2D, shadow_texture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, level.width + 1, level.height + 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+
+    free(pixels);
+
+    GLuint atlas = renderer.atlas_texture;
+    renderer.atlas_texture = shadow_texture;
+
+    push_rectangle(-0.5, -0.5, level.width + 1, level.height + 1, 0, 0, 1, 1, vector4(1, 1, 1, 1));
+    rendering_flush(&renderer);
+
+    renderer.atlas_texture = atlas;
+
+    glDeleteTextures(1, &shadow_texture);
 }
 
 void render_string(const char* text, float x, float y, float sx, float sy)
@@ -656,6 +737,9 @@ void lk_client_frame(LK_Platform* platform)
         game->art.white = add_texture(atlas, "data/textures/white.png");
         game->art.multiply = add_texture(atlas, "data/textures/multiply.png");
         game->art.font = add_texture(atlas, "data/textures/font.png");
+        game->art.barrel = add_texture(atlas, "data/textures/barrel.png");
+        game->art.shadow = add_texture(atlas, "data/textures/shadow.png");
+        game->art.stones = add_texture(atlas, "data/textures/stones.png");
 
         init_renderer(&game->renderer);
         game->initialized = true;
@@ -686,9 +770,10 @@ void lk_client_frame(LK_Platform* platform)
         -1, 1);
 
     render_level();
+    render_shadows();
+
     // render_string("This font is horrible", camera_x - 4, camera_y, 0.5, 0.5);
     // render_string("THIS FONT IS TOLERABLE", camera_x - 4, camera_y + 1, 0.5, 0.5);
-    rendering_flush(&game->renderer);
 
 
     {

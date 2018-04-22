@@ -227,7 +227,7 @@ void init_renderer(Renderer* renderer)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 }
 
-void rendering_flush(Renderer* renderer)
+void rendering_flush(Renderer* renderer, bool multiply = false)
 {
     glBindBuffer(GL_ARRAY_BUFFER, renderer->vbo);
     glBufferData(GL_ARRAY_BUFFER, render_vertices.size() * sizeof(Vertex), &render_vertices[0], GL_STATIC_DRAW);
@@ -246,7 +246,14 @@ void rendering_flush(Renderer* renderer)
     glUniform1i(atlas, 0);
 
     glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    if (!multiply)
+    {
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    }
+    else
+    {
+        glBlendFunc(GL_DST_COLOR, GL_ZERO);
+    }
 
     glBindVertexArray(renderer->vao);
     glDrawElements(GL_TRIANGLES, render_indices.size(), GL_UNSIGNED_INT, 0);
