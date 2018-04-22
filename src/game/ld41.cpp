@@ -83,6 +83,7 @@ enum Brain
 {
     BRAIN_PLAYER,
     BRAIN_TREASURE,
+    BRAIN_MONSTER,
 };
 
 struct Entity
@@ -332,10 +333,30 @@ void generate_level_cave(int width, int height)
         Entity player;
         player.brain = BRAIN_PLAYER;
         player.size = vector2(1.7, 1.7);
-        player.position = vector2(x, y) + 0.5 * player.size;
+        player.position = vector2(x + 1, y + 1) - 0.5 * player.size;
         player.texture = the_game->art.white;
         level.entities.push_back(player);
         break;
+    }
+
+    // place monsters
+
+    for (int i = 0; i < 80; i++)
+    {
+        int x = random_int(width - 1);
+        int y = random_int(height - 1);
+
+        if (read[(y + 0) * width + (x + 0)].z) continue;
+        if (read[(y + 0) * width + (x + 1)].z) continue;
+        if (read[(y + 1) * width + (x + 1)].z) continue;
+        if (read[(y + 1) * width + (x + 0)].z) continue;
+
+        Entity monster;
+        monster.brain = BRAIN_MONSTER;
+        monster.size = vector2(1.2, 1.2);
+        monster.position = vector2(x + 1, y + 1) - 0.5 * monster.size;
+        monster.texture = the_game->art.white;
+        level.entities.push_back(monster);
     }
 
     level.tiles = write;
@@ -460,6 +481,15 @@ void update_level()
             float move_distance = 6 * the_game->platform->time.delta_seconds;
             move_entity(&entity, noz(move) * move_distance);
             level.target_camera_position = entity.position;
+        } break;
+
+        case BRAIN_MONSTER:
+        {
+            float move_distance = 6 * the_game->platform->time.delta_seconds;
+            Vector2 move = vector2(random_float() * 2 - 1, random_float() * 2 - 1);
+            move = noz(move) * move_distance;
+
+            move_entity(&entity, move);
         } break;
 
         }
@@ -630,10 +660,9 @@ void render_shadows()
             count += does_tile_create_shadow(tile_x - 1, tile_y - 0) ? 1 : 0;
             count += does_tile_create_shadow(tile_x - 0, tile_y - 0) ? 1 : 0;
 
-            uint8* alpha = pixels + (tile_y * (level.width + 1) + tile_x) * 4 + 3;
-
             const uint8 COUNT_TO_ALPHA[] = { 0, 20, 20, 50, 150 };
-            *alpha = COUNT_TO_ALPHA[count];
+            uint8 alpha = COUNT_TO_ALPHA[count];
+            pixels[(tile_y * (level.width + 1) + tile_x) * 4 + 3] = alpha;
         }
     }
 
