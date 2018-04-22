@@ -210,7 +210,7 @@ void rhythm_controls()
     rhythm.time += the_game->platform->time.delta_seconds;
     if (rhythm.time > rhythm.length)
     {
-        the_game->state = GAME_ROGUE;
+        the_game->combat.doing_rhythm = false;
     }
 
 
@@ -247,6 +247,22 @@ void rhythm_controls()
     }
 }
 
+Vector4 get_color_for_score(float score)
+{
+    Vector4 red = vector4(1, 0, 0, 1);
+    Vector4 yellow = vector4(1, 1, 0, 1);
+    Vector4 green = vector4(0, 1, 0, 1);
+
+    if (score < 0.5)
+    {
+        return lerp(red, yellow, score * 2);
+    }
+    else
+    {
+        return lerp(yellow, green, (score - 0.5) * 2);
+    }
+}
+
 const float RHYTHM_EXIT_WIDTH = 1.5;
 
 void draw_lanes()
@@ -254,7 +270,7 @@ void draw_lanes()
     float width = the_game->renderer.camera_width;
     float side = RHYTHM_EXIT_WIDTH;
 
-    for (int lane = 0; lane < 4; lane++)
+    for (int lane = 0; lane < 2; lane++)
     {
         LK_Key key = LANE_CONTROLS[lane];
 
@@ -267,7 +283,7 @@ void draw_lanes()
         push_rectangle({ side, (float) lane }, { width - side, 1 }, the_game->art.marker_bed, color);
     }
 
-    push_rectangle({ 0, 0 }, { side, 4 }, the_game->art.white);
+    push_rectangle({ 0, 0 }, { side, 2 }, the_game->art.white);
 }
 
 void draw_note(Note* note)
@@ -294,15 +310,7 @@ void draw_note(Note* note)
     middle.uv1.x = middle.uv2.x = center_u;
     right.uv1.x = center_u;
 
-    Vector4 red = vector4(1, 0, 0, 1);
-    Vector4 yellow = vector4(1, 1, 0, 1);
-    Vector4 green = vector4(0, 1, 0, 1);
-
-    Vector4 color;
-    if (note->score < 0.5)
-        color = lerp(red, yellow, note->score * 2);
-    else
-        color = lerp(yellow, green, (note->score - 0.5) * 2);
+    Vector4 color = get_color_for_score(note->score);
 
     if (note->pressed && note->score < 0.1)
     {
@@ -313,9 +321,9 @@ void draw_note(Note* note)
     push_rectangle({ x + 0.5f,          y }, { width, 1 }, middle, color);
     push_rectangle({ x + 0.5f + width,  y }, { 0.5f,  1 }, right,  color);
 
-    static char percentage[50];
-    sprintf(percentage, "%d%%", (int)(note->score * 100 + 0.5));
-    render_string(percentage, x, y + 0.35, 0.3, 0.3);
+    // static char percentage[50];
+    // sprintf(percentage, "%d%%", (int)(note->score * 100 + 0.5));
+    // render_string(percentage, x, y + 0.35, 0.3, 0.3);
 }
 
 void rhythm_render()
@@ -334,10 +342,10 @@ void generate_rhythm()
 { 
     auto& rhythm = the_game->rhythm;
 
-    rhythm.length = 2.5;
+    rhythm.length = 2;
     rhythm.window = 2;
     rhythm.playback_time = 0;
-    rhythm.time = -3;
+    rhythm.time = -2;
     
     int minimum_notes = 4;
 
@@ -346,9 +354,10 @@ void generate_rhythm()
     {
         note_count = 0;
         rhythm.notes.clear();
+
         for (int i = 0; i < 8; i++)
         {
-            float at = i * 0.25f;
+            float at = i * 0.2f;
             float duration = 0;
 
             float chance = (i % 2) ? 0.3 : 0.8;
@@ -359,9 +368,10 @@ void generate_rhythm()
                 note_count++;
             }
         }
+
         for (int i = 0; i < 8; i++)
         {
-            float at = i * 0.25f;
+            float at = i * 0.2f;
             float duration = 0;
 
             float chance = (i % 2) ? 0.1 : 0.05;
@@ -373,4 +383,17 @@ void generate_rhythm()
             }
         }
     }
+}
+
+float get_rhythm_score()
+{
+    float score = 0;
+
+    for (Note& note : the_game->rhythm.notes)
+    {
+        score += note.score;
+    }
+
+    float note_count = (float) the_game->rhythm.notes.size();
+    return score / note_count;
 }
